@@ -1,5 +1,5 @@
 /*
-** $Id: luaconf.h,v 1.266 2018/03/02 18:31:51 roberto Exp roberto $
+** $Id: luaconf.h,v 1.270 2018/06/18 12:51:05 roberto Exp roberto $
 ** Configuration file for Lua
 ** See Copyright Notice in lua.h
 */
@@ -254,16 +254,18 @@
 #endif				/* } */
 
 
-/* more often than not the libs go together with the core */
+/*
+** More often than not the libs go together with the core.
+*/
 #define LUALIB_API	LUA_API
-#define LUAMOD_API	LUALIB_API
+#define LUAMOD_API	LUA_API
 
 
 /*
 @@ LUAI_FUNC is a mark for all extern functions that are not to be
 ** exported to outside modules.
-@@ LUAI_DDEF and LUAI_DDEC are marks for all extern (const) variables
-** that are not to be exported to outside modules (LUAI_DDEF for
+@@ LUAI_DDEF and LUAI_DDEC are marks for all extern (const) variables,
+** none of which to be exported to outside modules (LUAI_DDEF for
 ** definitions and LUAI_DDEC for declarations).
 ** CHANGE them if you need to mark them in some special way. Elf/gcc
 ** (versions 3.2 and later) mark them as "hidden" to optimize access
@@ -280,7 +282,7 @@
 #define LUAI_FUNC	extern
 #endif				/* } */
 
-#define LUAI_DDEC	LUAI_FUNC
+#define LUAI_DDEC(dec)	LUAI_FUNC dec
 #define LUAI_DDEF	/* empty */
 
 /* }================================================================== */
@@ -447,6 +449,7 @@
 @@ LUA_MAXINTEGER is the maximum value for a LUA_INTEGER.
 @@ LUA_MININTEGER is the minimum value for a LUA_INTEGER.
 @@ LUA_MAXUNSIGNED is the maximum value for a LUA_UNSIGNED.
+@@ LUA_UNSIGNEDBITS is the number of bits in a LUA_UNSIGNED.
 @@ lua_integer2str converts an integer to a string.
 */
 
@@ -467,6 +470,8 @@
 #define LUA_UNSIGNED		unsigned LUAI_UACINT
 
 #define LUA_MAXUNSIGNED		(~(lua_Unsigned)0)
+
+#define LUA_UNSIGNEDBITS	(sizeof(LUA_UNSIGNED) * CHAR_BIT)
 
 
 /* now the variable definitions */
@@ -696,20 +701,12 @@
 
 /*
 @@ LUAI_MAXALIGN defines fields that, when used in a union, ensure
-** "maximum" alignment for the other items in that union.
+** maximum alignment for the other items in that union.
 */
 #define LUAI_MAXALIGN  lua_Number n; double u; void *s; lua_Integer i; long l
 
 /* }================================================================== */
 
-
-/*
-@@ LUA_QL describes how error messages quote program elements.
-** Lua does not use these macros anymore; they are here for
-** compatibility only.
-*/
-#define LUA_QL(x)	"'" x "'"
-#define LUA_QS		LUA_QL("%s")
 
 
 

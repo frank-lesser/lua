@@ -1,5 +1,5 @@
 /*
-** $Id: ltests.c,v 2.242 2018/02/23 13:13:31 roberto Exp roberto $
+** $Id: ltests.c,v 2.244 2018/06/11 14:19:50 roberto Exp roberto $
 ** Internal Module for Debugging of the Lua Implementation
 ** See Copyright Notice in lua.h
 */
@@ -248,10 +248,11 @@ static void checkvalref (global_State *g, GCObject *f, const TValue *t) {
 
 static void checktable (global_State *g, Table *h) {
   unsigned int i;
+  unsigned int asize = luaH_realasize(h);
   Node *n, *limit = gnode(h, sizenode(h));
   GCObject *hgc = obj2gco(h);
   checkobjref(g, hgc, h->metatable);
-  for (i = 0; i < h->sizearray; i++)
+  for (i = 0; i < asize; i++)
     checkvalref(g, hgc, &h->array[i]);
   for (n = gnode(h, 0); n < limit; n++) {
     if (!isempty(gval(n))) {
@@ -428,8 +429,6 @@ static void checkgraylist (global_State *g, GCObject *o) {
   ((void)g);  /* better to keep it available if we need to print an object */
   while (o) {
     lua_assert(isgray(o) || getage(o) == G_TOUCHED2);
-    lua_assert(!testbit(o->marked, TESTGRAYBIT));
-    l_setbit(o->marked, TESTGRAYBIT);
     switch (o->tt) {
       case LUA_TTABLE: o = gco2t(o)->gclist; break;
       case LUA_TLCL: o = gco2lcl(o)->gclist; break;
@@ -443,27 +442,15 @@ static void checkgraylist (global_State *g, GCObject *o) {
 
 
 /*
-** mark all objects in gray lists with the TESTGRAYBIT, so that
-** 'checkmemory' can check that all gray objects are in a gray list
+** Check objects in gray lists.
 */
-static void markgrays (global_State *g) {
+static void checkgrays (global_State *g) {
   if (!keepinvariant(g)) return;
   checkgraylist(g, g->gray);
   checkgraylist(g, g->grayagain);
   checkgraylist(g, g->weak);
   checkgraylist(g, g->ephemeron);
   checkgraylist(g, g->protogray);
-}
-
-
-static void checkgray (global_State *g, GCObject *o) {
-  for (; o != NULL; o = o->next) {
-    if ((isgray(o) && o->tt != LUA_TUPVAL) || getage(o) == G_TOUCHED2) {
-      lua_assert(!keepinvariant(g) || testbit(o->marked, TESTGRAYBIT));
-      resetbit(o->marked, TESTGRAYBIT);
-    }
-    lua_assert(!testbit(o->marked, TESTGRAYBIT));
-  }
 }
 
 
@@ -499,7 +486,7 @@ int lua_checkmemory (lua_State *L) {
   }
   lua_assert(!isdead(g, gcvalue(&g->l_registry)));
   lua_assert(g->sweepgc == NULL || issweepphase(g));
-  markgrays(g);
+  checkgrays(g);
 
   /* check 'fixedgc' list */
   for (o = g->fixedgc; o != NULL; o = o->next) {
@@ -507,16 +494,13 @@ int lua_checkmemory (lua_State *L) {
   }
 
   /* check 'allgc' list */
-  checkgray(g, g->allgc);
   maybedead = (GCSatomic < g->gcstate && g->gcstate <= GCSswpallgc);
   checklist(g, maybedead, 0, g->allgc, g->survival, g->old, g->reallyold);
 
   /* check 'finobj' list */
-  checkgray(g, g->finobj);
   checklist(g, 0, 1, g->finobj, g->finobjsur, g->finobjold, g->finobjrold);
 
   /* check 'tobefnz' list */
-  checkgray(g, g->tobefnz);
   for (o = g->tobefnz; o != NULL; o = o->next) {
     checkobject(g, o, 0, G_NEW);
     lua_assert(tofinalize(o));
@@ -827,19 +811,23 @@ static int stacklevel (lua_State *L) {
 static int table_query (lua_State *L) {
   const Table *t;
   int i = cast_int(luaL_optinteger(L, 2, -1));
+  unsigned int asize;
   luaL_checktype(L, 1, LUA_TTABLE);
   t = hvalue(obj_at(L, 1));
+  asize = luaH_realasize(t);
   if (i == -1) {
-    lua_pushinteger(L, t->sizearray);
+    lua_pushinteger(L, asize);
     lua_pushinteger(L, allocsizenode(t));
     lua_pushinteger(L, isdummy(t) ? 0 : t->lastfree - t->node);
+    lua_pushinteger(L, t->alimit);
+    return 4;
   }
-  else if ((unsigned int)i < t->sizearray) {
+  else if ((unsigned int)i < asize) {
     lua_pushinteger(L, i);
     pushobject(L, &t->array[i]);
     lua_pushnil(L);
   }
-  else if ((i -= t->sizearray) < sizenode(t)) {
+  else if ((i -= asize) < sizenode(t)) {
     TValue k;
     getnodekey(L, &k, gnode(t, i));
     if (!isempty(gval(gnode(t, i))) ||

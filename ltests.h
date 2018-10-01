@@ -1,5 +1,5 @@
 /*
-** $Id: ltests.h,v 2.55 2017/12/18 13:01:49 roberto Exp roberto $
+** $Id: ltests.h,v 2.58 2018/04/19 15:42:41 roberto Exp roberto $
 ** Internal Header for Debugging of the Lua Implementation
 ** See Copyright Notice in lua.h
 */
@@ -24,6 +24,10 @@
 #define lua_assert(c)           assert(c)
 
 
+/* include opcode names */
+#define LUAI_DEFOPNAMES
+
+
 /* compiled with -O0, Lua uses a lot of C stack space... */
 #undef LUAI_MAXCCALLS
 #define LUAI_MAXCCALLS	200
@@ -39,6 +43,14 @@
 #else
 #define l_sprintf(s,sz,f,i)	(memset(s,0xAB,sz), sprintf(s,f,i))
 #endif
+
+
+/* get a chance to test code without jump tables */
+#define LUA_USE_JUMPTABLE	0
+
+
+/* use 32-bit integers in random generator */
+#define LUA_RAND32
 
 
 /* memory-allocator control variables */

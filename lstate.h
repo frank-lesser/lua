@@ -1,5 +1,5 @@
 /*
-** $Id: lstate.h,v 2.156 2018/02/17 19:29:29 roberto Exp roberto $
+** $Id: lstate.h,v 2.159 2018/06/15 19:31:22 roberto Exp roberto $
 ** Global State
 ** See Copyright Notice in lua.h
 */
@@ -104,8 +104,8 @@ typedef struct CallInfo {
     int funcidx;  /* called-function index */
     int nyield;  /* number of values yielded */
     struct {  /* info about transfered values (for call/return hooks) */
-      unsigned short fTransfer;  /* offset of first value transfered */
-      unsigned short nTransfer;  /* number of values transfered */
+      unsigned short ftransfer;  /* offset of first value transfered */
+      unsigned short ntransfer;  /* number of values transfered */
     } transferinfo;
   } u2;
   short nresults;  /* expected number of results from this function */
@@ -148,6 +148,7 @@ typedef struct global_State {
   lu_mem GCestimate;  /* an estimate of the non-garbage memory in use */
   stringtable strt;  /* hash table for strings */
   TValue l_registry;
+  TValue nilvalue;  /* a nil value */
   unsigned int seed;  /* randomized seed for hashes */
   lu_byte currentwhite;
   lu_byte gcstate;  /* state of garbage collector */
@@ -180,7 +181,6 @@ typedef struct global_State {
   struct lua_State *twups;  /* list of threads with open upvalues */
   lua_CFunction panic;  /* to be called in unprotected errors */
   struct lua_State *mainthread;
-  const lua_Number *version;  /* pointer to version number */
   TString *memerrmsg;  /* message for memory-allocation errors */
   TString *tmname[TM_N];  /* array with tag-method names */
   struct Table *mt[LUA_NUMTAGS];  /* metatables for basic types */
