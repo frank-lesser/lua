@@ -1,5 +1,5 @@
 /*
-** $Id: lmem.c,v 1.97 2018/05/30 14:25:52 roberto Exp roberto $
+** $Id: lmem.c $
 ** Interface to Memory Manager
 ** See Copyright Notice in lua.h
 */
@@ -108,7 +108,7 @@ l_noret luaM_toobig (lua_State *L) {
 */
 void luaM_free_ (lua_State *L, void *block, size_t osize) {
   global_State *g = G(L);
-  lua_assert((block == 0) == (block == NULL));
+  lua_assert((osize == 0) == (block == NULL));
   (*g->frealloc)(g->ud, block, osize, 0);
   g->GCdebt -= osize;
 }

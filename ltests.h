@@ -1,5 +1,5 @@
 /*
-** $Id: ltests.h,v 2.58 2018/04/19 15:42:41 roberto Exp roberto $
+** $Id: ltests.h $
 ** Internal Header for Debugging of the Lua Implementation
 ** See Copyright Notice in lua.h
 */
@@ -13,6 +13,7 @@
 
 /* test Lua with compatibility code */
 #define LUA_COMPAT_MATHLIB
+#define LUA_COMPAT_LT_LE
 
 
 #define LUA_DEBUG
@@ -30,7 +31,7 @@
 
 /* compiled with -O0, Lua uses a lot of C stack space... */
 #undef LUAI_MAXCCALLS
-#define LUAI_MAXCCALLS	200
+#define LUAI_MAXCCALLS	400
 
 /* to avoid warnings, and to make sure value is really unused */
 #define UNUSED(x)       (x=0, (void)(x))
@@ -118,7 +119,6 @@ LUA_API void *debug_realloc (void *ud, void *block,
 #undef LUAL_BUFFERSIZE
 #define LUAL_BUFFERSIZE		23
 #define MINSTRTABSIZE		2
-#define MAXINDEXRK		1
 #define MAXIWTHABS		3
 
 

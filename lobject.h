@@ -1,5 +1,5 @@
 /*
-** $Id: lobject.h,v 2.145 2018/06/15 14:14:20 roberto Exp roberto $
+** $Id: lobject.h $
 ** Type definitions for Lua objects
 ** See Copyright Notice in lua.h
 */
@@ -505,7 +505,6 @@ typedef struct Proto {
   lu_byte numparams;  /* number of fixed (named) parameters */
   lu_byte is_vararg;
   lu_byte maxstacksize;  /* number of registers needed by this function */
-  lu_byte cachemiss;  /* count for successive misses for 'cache' field */
   int sizeupvalues;  /* size of 'upvalues' */
   int sizek;  /* size of 'k' */
   int sizecode;
@@ -516,7 +515,6 @@ typedef struct Proto {
   int linedefined;  /* debug information  */
   int lastlinedefined;  /* debug information  */
   TValue *k;  /* constants used by the function */
-  struct LClosure *cache;  /* last-created closure with this prototype */
   Instruction *code;  /* opcodes */
   struct Proto **p;  /* functions defined inside the function */
   Upvaldesc *upvalues;  /* upvalue information */
@@ -586,6 +584,10 @@ typedef struct UpVal {
     TValue value;  /* the value (when closed) */
   } u;
 } UpVal;
+
+
+/* variant for "To Be Closed" upvalues */
+#define LUA_TUPVALTBC	(LUA_TUPVAL | (1 << 4))
 
 
 #define ClosureHeader \

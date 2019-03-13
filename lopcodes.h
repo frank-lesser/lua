@@ -1,5 +1,5 @@
 /*
-** $Id: lopcodes.h,v 1.192 2018/06/08 19:07:27 roberto Exp roberto $
+** $Id: lopcodes.h $
 ** Opcodes for Lua virtual machine
 ** See Copyright Notice in lua.h
 */
@@ -21,7 +21,7 @@ iABC         C(8)     |      B(8)     |k|     A(8)      |   Op(7)     |
 iABx               Bx(17)               |     A(8)      |   Op(7)     |
 iAsB              sBx (signed)(17)      |     A(8)      |   Op(7)     |
 iAx                           Ax(25)                    |   Op(7)     |
-isJ                          sJ(24)                   |m|   Op(7)     |
+isJ                          sJ(25)                     |   Op(7)     |
 
   A signed argument is represented in excess K: the represented value is
   the written unsigned value minus K, where K is half the maximum for the
@@ -40,7 +40,7 @@ enum OpMode {iABC, iABx, iAsBx, iAx, isJ};  /* basic instruction formats */
 #define SIZE_Bx		(SIZE_C + SIZE_B + 1)
 #define SIZE_A		8
 #define SIZE_Ax		(SIZE_Bx + SIZE_A)
-#define SIZE_sJ		(SIZE_Bx + SIZE_A - 1)
+#define SIZE_sJ		(SIZE_Bx + SIZE_A)
 
 #define SIZE_OP		7
 
@@ -55,8 +55,7 @@ enum OpMode {iABC, iABx, iAsBx, iAx, isJ};  /* basic instruction formats */
 
 #define POS_Ax		POS_A
 
-#define POS_m		POS_A
-#define POS_sJ		(POS_A + 1)
+#define POS_sJ		POS_A
 
 /*
 ** limits for opcode arguments.
@@ -144,8 +143,6 @@ enum OpMode {iABC, iABx, iAsBx, iAx, isJ};  /* basic instruction formats */
 	check_exp(checkopm(i, isJ), getarg(i, POS_sJ, SIZE_sJ) - OFFSET_sJ)
 #define SETARG_sJ(i,j) \
 	setarg(i, cast_uint((j)+OFFSET_sJ), POS_sJ, SIZE_sJ)
-#define GETARG_m(i)	check_exp(checkopm(i, isJ), getarg(i, POS_m, 1))
-#define SETARG_m(i,m)	setarg(i, m, POS_m, 1)
 
 
 #define CREATE_ABCk(o,a,b,c,k)	((cast(Instruction, o)<<POS_OP) \
@@ -224,6 +221,14 @@ OP_POWI,/*	A B sC	R(A) := R(B) ^ C				*/
 OP_DIVI,/*	A B sC	R(A) := R(B) / C				*/
 OP_IDIVI,/*	A B sC	R(A) := R(B) // C				*/
 
+OP_ADDK,/*	A B C	R(A) := R(B) + K(C)				*/
+OP_SUBK,/*	A B C	R(A) := R(B) - K(C)				*/
+OP_MULK,/*	A B C	R(A) := R(B) * K(C)				*/
+OP_MODK,/*	A B C	R(A) := R(B) % K(C)				*/
+OP_POWK,/*	A B C	R(A) := R(B) ^ K(C)				*/
+OP_DIVK,/*	A B C	R(A) := R(B) / K(C)				*/
+OP_IDIVK,/*	A B C	R(A) := R(B) // K(C)				*/
+
 OP_BANDK,/*	A B C	R(A) := R(B) & K(C):integer			*/
 OP_BORK,/*	A B C	R(A) := R(B) | K(C):integer			*/
 OP_BXORK,/*	A B C	R(A) := R(B) ~ K(C):integer			*/
@@ -238,11 +243,13 @@ OP_MOD,/*	A B C	R(A) := R(B) % R(C)				*/
 OP_POW,/*	A B C	R(A) := R(B) ^ R(C)				*/
 OP_DIV,/*	A B C	R(A) := R(B) / R(C)				*/
 OP_IDIV,/*	A B C	R(A) := R(B) // R(C)				*/
+
 OP_BAND,/*	A B C	R(A) := R(B) & R(C)				*/
 OP_BOR,/*	A B C	R(A) := R(B) | R(C)				*/
 OP_BXOR,/*	A B C	R(A) := R(B) ~ R(C)				*/
 OP_SHL,/*	A B C	R(A) := R(B) << R(C)				*/
 OP_SHR,/*	A B C	R(A) := R(B) >> R(C)				*/
+
 OP_UNM,/*	A B	R(A) := -R(B)					*/
 OP_BNOT,/*	A B	R(A) := ~R(B)					*/
 OP_NOT,/*	A B	R(A) := not R(B)				*/
@@ -251,6 +258,7 @@ OP_LEN,/*	A B	R(A) := length of R(B)				*/
 OP_CONCAT,/*	A B  	R(A) := R(A).. ... ..R(A + B - 1)		*/
 
 OP_CLOSE,/*	A	close all upvalues >= R(A)			*/
+OP_TBC,/*	A	mark variable A "to be closed"			*/
 OP_JMP,/*	k sJ	pc += sJ  (k is used in code generation)	*/
 OP_EQ,/*	A B	if ((R(A) == R(B)) ~= k) then pc++		*/
 OP_LT,/*	A B	if ((R(A) <  R(B)) ~= k) then pc++		*/
@@ -281,8 +289,9 @@ OP_FORLOOP,/*	A Bx	R(A)+=R(A+2);
 			if R(A) <?= R(A+1) then { pc-=Bx; R(A+3)=R(A) }	*/
 OP_FORPREP,/*	A Bx	R(A)-=R(A+2); pc+=Bx				*/
 
-OP_TFORCALL,/*	A C	R(A+3), ... ,R(A+2+C) := R(A)(R(A+1), R(A+2));	*/
-OP_TFORLOOP,/*	A Bx	if R(A+1) ~= nil then { R(A)=R(A+1); pc -= Bx }	*/
+OP_TFORPREP,/*	A Bx	create upvalue for R(A + 3); pc+=Bx		*/
+OP_TFORCALL,/*	A C	R(A+4), ... ,R(A+3+C) := R(A)(R(A+1), R(A+2));	*/
+OP_TFORLOOP,/*	A Bx	if R(A+2) ~= nil then { R(A)=R(A+2); pc -= Bx }	*/
 
 OP_SETLIST,/*	A B C	R(A)[(C-1)*FPF+i] := R(A+i), 1 <= i <= B	*/
 
@@ -356,9 +365,6 @@ LUAI_DDEC(const lu_byte luaP_opmodes[NUM_OPCODES];)
 #define isIT(i)		(testITMode(GET_OPCODE(i)) && GETARG_B(i) == 0)
 
 #define opmode(ot,it,t,a,m) (((ot)<<6) | ((it)<<5) | ((t)<<4) | ((a)<<3) | (m))
-
-
-LUAI_DDEC(const char *const luaP_opnames[NUM_OPCODES+1];)  /* opcode names */
 
 
 /* number of list items to accumulate before a SETLIST instruction */

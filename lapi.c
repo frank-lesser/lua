@@ -1,5 +1,5 @@
 /*
-** $Id: lapi.c,v 2.294 2018/06/15 19:31:22 roberto Exp roberto $
+** $Id: lapi.c $
 ** Lua API
 ** See Copyright Notice in lua.h
 */
@@ -38,7 +38,11 @@ const char lua_ident[] =
 
 
 
-/* test for a valid index */
+/*
+** Test for a valid index.
+** '!ttisnil(o)' implies 'o != &G(L)->nilvalue', so it is not needed.
+** However, it covers the most common cases in a faster way.
+*/
 #define isvalid(L, o)	(!ttisnil(o) || o != &G(L)->nilvalue)
 
 
@@ -169,15 +173,17 @@ LUA_API void lua_settop (lua_State *L, int idx) {
   StkId func = L->ci->func;
   lua_lock(L);
   if (idx >= 0) {
+    StkId newtop = (func + 1) + idx;
     api_check(L, idx <= L->stack_last - (func + 1), "new top too large");
-    while (L->top < (func + 1) + idx)
+    while (L->top < newtop)
       setnilvalue(s2v(L->top++));
-    L->top = (func + 1) + idx;
+    L->top = newtop;
   }
   else {
     api_check(L, -(idx+1) <= (L->top - (func + 1)), "invalid new top");
     L->top += idx+1;  /* 'subtract' index (index is negative) */
   }
+  luaF_close(L, L->top, LUA_OK);
   lua_unlock(L);
 }
 
@@ -950,7 +956,7 @@ LUA_API void lua_callk (lua_State *L, int nargs, int nresults,
   api_check(L, L->status == LUA_OK, "cannot do calls on non-normal thread");
   checkresults(L, nargs, nresults);
   func = L->top - (nargs+1);
-  if (k != NULL && L->nny == 0) {  /* need to prepare continuation? */
+  if (k != NULL && yieldable(L)) {  /* need to prepare continuation? */
     L->ci->u.c.k = k;  /* save continuation */
     L->ci->u.c.ctx = ctx;  /* save context */
     luaD_call(L, func, nresults);  /* do the call */
@@ -998,7 +1004,7 @@ LUA_API int lua_pcallk (lua_State *L, int nargs, int nresults, int errfunc,
     func = savestack(L, o);
   }
   c.func = L->top - (nargs+1);  /* function to be called */
-  if (k == NULL || L->nny > 0) {  /* no continuation or no yieldable? */
+  if (k == NULL || !yieldable(L)) {  /* no continuation or no yieldable? */
     c.nresults = nresults;  /* do a 'conventional' protected call */
     status = luaD_pcall(L, f_call, &c, savestack(L, c.func), func);
   }
@@ -1135,22 +1141,21 @@ LUA_API int lua_gc (lua_State *L, int what, ...) {
       break;
     }
     case LUA_GCGEN: {
-      int oldmode = g->gckind;
       int minormul = va_arg(argp, int);
       int majormul = va_arg(argp, int);
+      res = isdecGCmodegen(g) ? LUA_GCGEN : LUA_GCINC;
       if (minormul != 0)
         g->genminormul = minormul;
       if (majormul != 0)
         setgcparam(g->genmajormul, majormul);
       luaC_changemode(L, KGC_GEN);
-      res = (oldmode == KGC_GEN) ? LUA_GCGEN : LUA_GCINC;
       break;
     }
     case LUA_GCINC: {
-      int oldmode = g->gckind;
       int pause = va_arg(argp, int);
       int stepmul = va_arg(argp, int);
       int stepsize = va_arg(argp, int);
+      res = isdecGCmodegen(g) ? LUA_GCGEN : LUA_GCINC;
       if (pause != 0)
         setgcparam(g->gcpause, pause);
       if (stepmul != 0)
@@ -1158,7 +1163,6 @@ LUA_API int lua_gc (lua_State *L, int what, ...) {
       if (stepsize != 0)
         g->gcstepsize = stepsize;
       luaC_changemode(L, KGC_INC);
-      res = (oldmode == KGC_GEN) ? LUA_GCGEN : LUA_GCINC;
       break;
     }
     default: res = -1;  /* invalid option */
@@ -1198,6 +1202,22 @@ LUA_API int lua_next (lua_State *L, int idx) {
     L->top -= 1;  /* remove key */
   lua_unlock(L);
   return more;
+}
+
+
+LUA_API void lua_toclose (lua_State *L, int idx) {
+  int nresults;
+  StkId o;
+  lua_lock(L);
+  o = index2stack(L, idx);
+  nresults = L->ci->nresults;
+  api_check(L, L->openupval == NULL || uplevel(L->openupval) <= o,
+               "marked index below or equal new one");
+  luaF_newtbcupval(L, o);  /* create new to-be-closed upvalue */
+  if (!hastocloseCfunc(nresults))  /* function not marked yet? */
+    L->ci->nresults = codeNresults(nresults);  /* mark it */
+  lua_assert(hastocloseCfunc(L->ci->nresults));
+  lua_unlock(L);
 }
 
 
@@ -1245,6 +1265,22 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud) {
 }
 
 
+void lua_setwarnf (lua_State *L, lua_WarnFunction f, void *ud) {
+  lua_lock(L);
+  G(L)->ud_warn = ud;
+  G(L)->warnf = f;
+  lua_unlock(L);
+}
+
+
+void lua_warning (lua_State *L, const char *msg) {
+  lua_lock(L);
+  luaE_warning(L, msg);
+  lua_unlock(L);
+}
+
+
+
 LUA_API void *lua_newuserdatauv (lua_State *L, size_t size, int nuvalue) {
   Udata *u;
   lua_lock(L);
@@ -1277,7 +1313,7 @@ static const char *aux_upvalue (TValue *fi, int n, TValue **val,
       *val = f->upvals[n-1]->v;
       if (owner) *owner = obj2gco(f->upvals[n - 1]);
       name = p->upvalues[n-1].name;
-      return (name == NULL) ? "(*no name)" : getstr(name);
+      return (name == NULL) ? "(no name)" : getstr(name);
     }
     default: return NULL;  /* not a closure */
   }

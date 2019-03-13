@@ -1,5 +1,5 @@
 /*
-** $Id: ldebug.h,v 2.17 2018/05/02 18:17:59 roberto Exp roberto $
+** $Id: ldebug.h $
 ** Auxiliary functions from Debug Interface module
 ** See Copyright Notice in lua.h
 */
@@ -22,8 +22,12 @@
 #define ABSLINEINFO	(-0x80)
 
 LUAI_FUNC int luaG_getfuncline (const Proto *f, int pc);
+LUAI_FUNC const char *luaG_findlocal (lua_State *L, CallInfo *ci, int n,
+                                                    StkId *pos);
 LUAI_FUNC l_noret luaG_typeerror (lua_State *L, const TValue *o,
                                                 const char *opname);
+LUAI_FUNC l_noret luaG_forerror (lua_State *L, const TValue *o,
+                                               const char *what);
 LUAI_FUNC l_noret luaG_concaterror (lua_State *L, const TValue *p1,
                                                   const TValue *p2);
 LUAI_FUNC l_noret luaG_opinterror (lua_State *L, const TValue *p1,

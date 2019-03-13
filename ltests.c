@@ -1,5 +1,5 @@
 /*
-** $Id: ltests.c,v 2.244 2018/06/11 14:19:50 roberto Exp roberto $
+** $Id: ltests.c $
 ** Internal Module for Debugging of the Lua Implementation
 ** See Copyright Notice in lua.h
 */
@@ -27,6 +27,7 @@
 #include "lfunc.h"
 #include "lmem.h"
 #include "lopcodes.h"
+#include "lopnames.h"
 #include "lstate.h"
 #include "lstring.h"
 #include "ltable.h"
@@ -62,10 +63,71 @@ static void pushobject (lua_State *L, const TValue *o) {
 }
 
 
+static void badexit (const char *fmt, ...) {
+  va_list argp;
+  va_start(argp, fmt);
+  vfprintf(stderr, fmt, argp);
+  va_end(argp);
+  /* avoid assertion failures when exiting */
+  l_memcontrol.numblocks = l_memcontrol.total = 0;
+  exit(EXIT_FAILURE);
+}
+
+
 static int tpanic (lua_State *L) {
-  fprintf(stderr, "PANIC: unprotected error in call to Lua API (%s)\n",
-                   lua_tostring(L, -1));
-  return (exit(EXIT_FAILURE), 0);  /* do not return to Lua */
+  return (badexit("PANIC: unprotected error in call to Lua API (%s)\n",
+                   lua_tostring(L, -1)),
+          0);  /* do not return to Lua */
+}
+
+
+static int islast (const char *message) {
+  size_t len = strlen(message);
+  return (len > 0 && message[len - 1] == '\n');
+}
+
+
+/*
+** Warning function for tests. Fist, it concatenates all parts of
+** a warning in buffer 'buff'. Then:
+** messages starting with '#' are shown on standard output (used to
+** test explicit warnings);
+** messages containing '@' are stored in global '_WARN' (used to test
+** errors that generate warnings);
+** other messages abort the tests (they represent real warning conditions;
+** the standard tests should not generate these conditions unexpectedly).
+*/
+static void warnf (void **pud, const char *msg) {
+  static char buff[200];  /* should be enough for tests... */
+  static int cont = 0;  /* message to be continued */
+  if (cont) {  /* continuation? */
+    if (strlen(msg) >= sizeof(buff) - strlen(buff))
+      badexit("warnf-buffer overflow");
+    strcat(buff, msg);  /* add new message to current warning */
+  }
+  else {  /* new warning */
+    if (strlen(msg) >= sizeof(buff))
+      badexit("warnf-buffer overflow");
+    strcpy(buff, msg);  /* start a new warning */
+  }
+  if (!islast(msg))  /* message not finished yet? */
+    cont = 1;  /* wait for more */
+  else {  /* handle message */
+    cont = 0;  /* prepare for next message */
+    if (buff[0] == '#')  /* expected warning? */
+      printf("Expected Lua warning: %s", buff);  /* print it */
+    else if (strchr(buff, '@') != NULL) {  /* warning for test purposes? */
+      lua_State *L = cast(lua_State *, *pud);
+      lua_unlock(L);
+      lua_pushstring(L, buff);
+      lua_setglobal(L, "_WARN");  /* assign message to global '_WARN' */
+      lua_lock(L);
+      return;
+    }
+    else {  /* a real warning; should not happen during tests */
+      badexit("Unexpected warning in test mode: %s\naborting...\n", buff);
+    }
+  }
 }
 
 
@@ -141,7 +203,7 @@ void *debug_realloc (void *ud, void *b, size_t oldsize, size_t size) {
     freeblock(mc, block);
     return NULL;
   }
-  if (mc->countlimit != ~0UL && size > 0) {  /* count limit in use? */
+  if (mc->countlimit != ~0UL && size != oldsize) {  /* count limit in use? */
     if (mc->countlimit == 0)
       return NULL;  /* fake a memory allocation error */
     mc->countlimit--;
@@ -155,7 +217,8 @@ void *debug_realloc (void *ud, void *b, size_t oldsize, size_t size) {
     size_t realsize = sizeof(Header) + size + MARKSIZE;
     if (realsize < size) return NULL;  /* arithmetic overflow! */
     newblock = cast(Header *, malloc(realsize));  /* alloc a new block */
-    if (newblock == NULL) return NULL;  /* really out of memory? */
+    if (newblock == NULL)
+      return NULL;  /* really out of memory? */
     if (block) {
       memcpy(newblock + 1, block + 1, commonsize);  /* copy old contents */
       freeblock(mc, block);  /* erase (and check) old copy */
@@ -282,7 +345,6 @@ static void checkudata (global_State *g, Udata *u) {
 static void checkproto (global_State *g, Proto *f) {
   int i;
   GCObject *fgc = obj2gco(f);
-  checkobjref(g, fgc, f->cache);
   checkobjref(g, fgc, f->source);
   for (i=0; i<f->sizek; i++) {
     if (ttisstring(f->k + i))
@@ -356,7 +418,8 @@ static void checkrefs (global_State *g, GCObject *o) {
       checkudata(g, gco2u(o));
       break;
     }
-    case LUA_TUPVAL: {
+    case LUA_TUPVAL:
+    case LUA_TUPVALTBC: {
       checkvalref(g, o, gco2upv(o)->v);
       break;
     }
@@ -415,8 +478,6 @@ static void checkobject (global_State *g, GCObject *o, int maybedead,
         getage(o) == G_TOUCHED1 ||
         getage(o) == G_OLD0 ||
         o->tt == LUA_TTHREAD ||
-        (o->tt == LUA_TPROTO &&
-            (gco2p(o)->cache != NULL || gco2p(o)->cachemiss >= MAXMISS)) ||
         (o->tt == LUA_TUPVAL && upisopen(gco2upv(o))));
       }
     }
@@ -450,7 +511,6 @@ static void checkgrays (global_State *g) {
   checkgraylist(g, g->grayagain);
   checkgraylist(g, g->weak);
   checkgraylist(g, g->ephemeron);
-  checkgraylist(g, g->protogray);
 }
 
 
@@ -521,34 +581,37 @@ int lua_checkmemory (lua_State *L) {
 
 
 static char *buildop (Proto *p, int pc, char *buff) {
+  char *obuff = buff;
   Instruction i = p->code[pc];
   OpCode o = GET_OPCODE(i);
-  const char *name = luaP_opnames[o];
+  const char *name = opnames[o];
   int line = luaG_getfuncline(p, pc);
-  sprintf(buff, "(%4d) %4d - ", line, pc);
+  int lineinfo = (p->lineinfo != NULL) ? p->lineinfo[pc] : 0;
+  if (lineinfo == ABSLINEINFO)
+    buff += sprintf(buff, "(__");
+  else
+    buff += sprintf(buff, "(%2d", lineinfo);
+  buff += sprintf(buff, " - %4d) %4d - ", line, pc);
   switch (getOpMode(o)) {
     case iABC:
-      sprintf(buff+strlen(buff), "%-12s%4d %4d %4d%s", name,
+      sprintf(buff, "%-12s%4d %4d %4d%s", name,
               GETARG_A(i), GETARG_B(i), GETARG_C(i),
               GETARG_k(i) ? " (k)" : "");
       break;
     case iABx:
-      sprintf(buff+strlen(buff), "%-12s%4d %4d", name, GETARG_A(i),
-                                                       GETARG_Bx(i));
+      sprintf(buff, "%-12s%4d %4d", name, GETARG_A(i), GETARG_Bx(i));
       break;
     case iAsBx:
-      sprintf(buff+strlen(buff), "%-12s%4d %4d", name, GETARG_A(i),
-                                                       GETARG_sBx(i));
+      sprintf(buff, "%-12s%4d %4d", name, GETARG_A(i), GETARG_sBx(i));
       break;
     case iAx:
-      sprintf(buff+strlen(buff), "%-12s%4d", name, GETARG_Ax(i));
+      sprintf(buff, "%-12s%4d", name, GETARG_Ax(i));
       break;
     case isJ:
-      sprintf(buff+strlen(buff), "%-12s%4d (%1d)", name, GETARG_sJ(i),
-                                                         !!GETARG_m(i));
+      sprintf(buff, "%-12s%4d", name, GETARG_sJ(i));
       break;
   }
-  return buff;
+  return obuff;
 }
 
 
@@ -599,7 +662,7 @@ static int printcode (lua_State *L) {
   printf("numparams: %d\n", p->numparams);
   for (pc=0; pc<p->sizecode; pc++) {
     char buff[100];
-    printf("%d\t%s\n", pc + 1, buildop(p, pc, buff));
+    printf("%s\n", buildop(p, pc, buff));
   }
   return 0;
 }
@@ -615,6 +678,24 @@ static int listk (lua_State *L) {
   for (i=0; i<p->sizek; i++) {
     pushobject(L, p->k+i);
     lua_rawseti(L, -2, i+1);
+  }
+  return 1;
+}
+
+
+static int listabslineinfo (lua_State *L) {
+  Proto *p;
+  int i;
+  luaL_argcheck(L, lua_isfunction(L, 1) && !lua_iscfunction(L, 1),
+                 1, "Lua function expected");
+  p = getproto(obj_at(L, 1));
+  luaL_argcheck(L, p->abslineinfo != NULL, 1, "function has no debug info");
+  lua_createtable(L, 2 * p->sizeabslineinfo, 0);
+  for (i=0; i < p->sizeabslineinfo; i++) {
+    lua_pushinteger(L, p->abslineinfo[i].pc);
+    lua_rawseti(L, -2, 2 * i + 1);
+    lua_pushinteger(L, p->abslineinfo[i].line);
+    lua_rawseti(L, -2, 2 * i + 2);
   }
   return 1;
 }
@@ -1120,8 +1201,8 @@ static const char *const delimits = " \t\n,;";
 static void skip (const char **pc) {
   for (;;) {
     if (**pc != '\0' && strchr(delimits, **pc)) (*pc)++;
-    else if (**pc == '#') {
-      while (**pc != '\n' && **pc != '\0') (*pc)++;
+    else if (**pc == '#') {  /* comment? */
+      while (**pc != '\n' && **pc != '\0') (*pc)++;  /* until end-of-line */
     }
     else break;
   }
@@ -1185,7 +1266,7 @@ static int getindex_aux (lua_State *L, lua_State *L1, const char **pc) {
 
 static void pushcode (lua_State *L, int code) {
   static const char *const codes[] = {"OK", "YIELD", "ERRRUN",
-                   "ERRSYNTAX", "ERRMEM", "ERRGCMM", "ERRERR"};
+                   "ERRSYNTAX", MEMERRMSG, "ERRGCMM", "ERRERR"};
   lua_pushstring(L, codes[code]);
 }
 
@@ -1347,6 +1428,9 @@ static int runC (lua_State *L, lua_State *L1, const char *pc) {
     else if EQ("newthread") {
       lua_newthread(L1);
     }
+    else if EQ("resetthread") {
+      lua_pushinteger(L1, lua_resetthread(L1));
+    }
     else if EQ("newuserdata") {
       lua_newuserdata(L1, getnum);
     }
@@ -1381,6 +1465,10 @@ static int runC (lua_State *L, lua_State *L1, const char *pc) {
     else if EQ("print") {
       const char *msg = getstring;
       printf("%s\n", msg);
+    }
+    else if EQ("warning") {
+      const char *msg = getstring;
+      lua_warning(L1, msg);
     }
     else if EQ("pushbool") {
       lua_pushboolean(L1, getnum);
@@ -1456,18 +1544,22 @@ static int runC (lua_State *L, lua_State *L1, const char *pc) {
     }
     else if EQ("setfield") {
       int t = getindex;
-      lua_setfield(L1, t, getstring);
+      const char *s = getstring;
+      lua_setfield(L1, t, s);
     }
     else if EQ("setglobal") {
-      lua_setglobal(L1, getstring);
+      const char *s = getstring;
+      lua_setglobal(L1, s);
     }
     else if EQ("sethook") {
       int mask = getnum;
       int count = getnum;
-      sethookaux(L1, mask, count, getstring);
+      const char *s = getstring;
+      sethookaux(L1, mask, count, s);
     }
     else if EQ("setmetatable") {
-      lua_setmetatable(L1, getindex);
+      int idx = getindex;
+      lua_setmetatable(L1, idx);
     }
     else if EQ("settable") {
       lua_settable(L1, getindex);
@@ -1530,6 +1622,9 @@ static struct X { int x; } x;
       int nres = getnum;
       int i = getindex;
       return lua_yieldk(L1, nres, i, Cfunck);
+    }
+    else if EQ("toclose") {
+      lua_toclose(L1, getnum);
     }
     else luaL_error(L, "unknown instruction %s", buff);
   }
@@ -1681,6 +1776,7 @@ static const struct luaL_Reg tests_funcs[] = {
   {"listcode", listcode},
   {"printcode", printcode},
   {"listk", listk},
+  {"listabslineinfo", listabslineinfo},
   {"listlocals", listlocals},
   {"loadlib", loadlib},
   {"checkpanic", checkpanic},
@@ -1716,6 +1812,7 @@ static void checkfinalmem (void) {
 int luaB_opentests (lua_State *L) {
   void *ud;
   lua_atpanic(L, &tpanic);
+  lua_setwarnf(L, &warnf, L);
   atexit(checkfinalmem);
   lua_assert(lua_getallocf(L, &ud) == debug_realloc);
   lua_assert(ud == cast_voidp(&l_memcontrol));
