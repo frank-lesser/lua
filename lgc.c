@@ -832,7 +832,7 @@ static void GCTM (lua_State *L) {
   lua_assert(!g->gcemergency);
   setgcovalue(L, &v, udata2finalize(g));
   tm = luaT_gettmbyobj(L, &v, TM_GC);
-  if (tm != NULL && ttisfunction(tm)) {  /* is there a finalizer? */
+  if (!notm(tm)) {  /* is there a finalizer? */
     int status;
     lu_byte oldah = L->allowhook;
     int running  = g->gcrunning;
@@ -850,9 +850,9 @@ static void GCTM (lua_State *L) {
       const char *msg = (ttisstring(s2v(L->top - 1)))
                         ? svalue(s2v(L->top - 1))
                         : "error object is not a string";
-      luaE_warning(L, "error in __gc metamethod (");
-      luaE_warning(L, msg);
-      luaE_warning(L, ")\n");
+      luaE_warning(L, "error in __gc metamethod (", 1);
+      luaE_warning(L, msg, 1);
+      luaE_warning(L, ")", 0);
     }
   }
 }
@@ -1423,6 +1423,7 @@ static lu_mem atomic (lua_State *L) {
   /* registry and global metatables may be changed by API */
   markvalue(g, &g->l_registry);
   markmt(g);  /* mark global metatables */
+  work += propagateall(g);  /* empties 'gray' list */
   /* remark occasional upvalues of (maybe) dead threads */
   work += remarkupvals(g);
   work += propagateall(g);  /* propagate changes */
@@ -1486,8 +1487,7 @@ static lu_mem singlestep (lua_State *L) {
         return propagatemark(g);  /* traverse one gray object */
     }
     case GCSenteratomic: {
-      lu_mem work = propagateall(g);  /* make sure gray list is empty */
-      work += atomic(L);  /* work is what was traversed by 'atomic' */
+      lu_mem work = atomic(L);  /* work is what was traversed by 'atomic' */
       entersweep(L);
       g->GCestimate = gettotalbytes(g);  /* first estimate */;
       return work;

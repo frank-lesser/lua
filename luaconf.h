@@ -28,6 +28,21 @@
 */
 
 /*
+@@ LUAI_MAXCSTACK defines the maximum depth for nested calls and
+** also limits the maximum depth of other recursive algorithms in
+** the implementation, such as syntactic analysis. A value too
+** large may allow the interpreter to crash (C-stack overflow).
+** The default value seems ok for regular machines, but may be
+** too high for restricted hardware.
+** The test file 'cstack.lua' may help finding a good limit.
+** (It will crash with a limit too high.)
+*/
+#if !defined(LUAI_MAXCSTACK)
+#define LUAI_MAXCSTACK		2200
+#endif
+
+
+/*
 @@ LUA_32BITS enables Lua with 32-bit integers and 32-bit floats. You
 ** can also define LUA_32BITS in the make file, but changing here you
 ** ensure that all software connected to Lua will be compiled with the
@@ -694,16 +709,9 @@
 
 /*
 @@ LUAL_BUFFERSIZE is the buffer size used by the lauxlib buffer system.
-** CHANGE it if it uses too much C-stack space. (For long double,
-** 'string.format("%.99f", -1e4932)' needs 5052 bytes, so a
-** smaller buffer would force a memory allocation for each call to
-** 'string.format'.)
 */
-#if LUA_FLOAT_TYPE == LUA_FLOAT_LONGDOUBLE
-#define LUAL_BUFFERSIZE		8192
-#else
 #define LUAL_BUFFERSIZE   ((int)(16 * sizeof(void*) * sizeof(lua_Number)))
-#endif
+
 
 /*
 @@ LUAI_MAXALIGN defines fields that, when used in a union, ensure

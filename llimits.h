@@ -65,6 +65,10 @@ typedef signed char ls_byte;
 #define ispow2(x)	(((x) & ((x) - 1)) == 0)
 
 
+/* number of chars of a literal string without the ending \0 */
+#define LL(x)   (sizeof(x)/sizeof(char) - 1)
+
+
 /*
 ** conversion of pointer to unsigned integer:
 ** this is for hashing only; there is no problem if the integer
@@ -167,15 +171,6 @@ typedef LUAI_UACINT l_uacInt;
 
 #endif
 
-
-/*
-** maximum depth for nested C calls and syntactical nested non-terminals
-** in a program. (Value must fit in an unsigned short int. It must also
-** be compatible with the size of the C stack.)
-*/
-#if !defined(LUAI_MAXCCALLS)
-#define LUAI_MAXCCALLS		2200
-#endif
 
 
 
@@ -325,6 +320,8 @@ typedef l_uint32 Instruction;
 #define luai_numeq(a,b)         ((a)==(b))
 #define luai_numlt(a,b)         ((a)<(b))
 #define luai_numle(a,b)         ((a)<=(b))
+#define luai_numgt(a,b)         ((a)>(b))
+#define luai_numge(a,b)         ((a)>=(b))
 #define luai_numisnan(a)        (!luai_numeq((a), (a)))
 #endif
 

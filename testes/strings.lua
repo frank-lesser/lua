@@ -153,6 +153,22 @@ else   -- compatible coercion
   assert(tostring(-1203 + 0.0) == "-1203")
 end
 
+do  -- tests for '%p' format
+  -- not much to test, as C does not specify what '%p' does.
+  -- ("The value of the pointer is converted to a sequence of printing
+  -- characters, in an implementation-defined manner.")
+  local null = string.format("%p", nil)
+  assert(string.format("%p", {}) ~= null)
+  assert(string.format("%p", 4) == null)
+  assert(string.format("%p", print) ~= null)
+  assert(string.format("%p", coroutine.running()) ~= null)
+  assert(string.format("%p", {}) ~= string.format("%p", {}))
+  assert(string.format("%p", string.rep("a", 10)) ==
+         string.format("%p", string.rep("a", 10)))     -- short strings
+  assert(string.format("%p", string.rep("a", 300)) ~=
+         string.format("%p", string.rep("a", 300)))     -- long strings
+  assert(#string.format("%90p", {}) == 90)
+end
 
 x = '"ílo"\n\\'
 assert(string.format('%q%s', x, x) == '"\\"ílo\\"\\\n\\\\""ílo"\n\\')
@@ -199,6 +215,7 @@ end
 
 assert(string.format("\0%s\0", "\0\0\1") == "\0\0\0\1\0")
 checkerror("contains zeros", string.format, "%10s", "\0")
+checkerror("cannot have modifiers", string.format, "%10q", "1")
 
 -- format x tostring
 assert(string.format("%s %s", nil, true) == "nil true")

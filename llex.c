@@ -228,6 +228,8 @@ static int read_numeral (LexState *ls, SemInfo *seminfo) {
       save_and_next(ls);
     else break;
   }
+  if (lislalnum(ls->current))  /* is numeral touching an alpha num? */
+    save_and_next(ls);  /* force an error */
   save(ls, '\0');
   if (luaO_str2num(luaZ_buffer(ls->buff), &obj) == 0)  /* format error? */
     lexerror(ls, "malformed number", TK_FLT);
@@ -334,8 +336,8 @@ static unsigned long readutf8esc (LexState *ls) {
   r = gethexa(ls);  /* must have at least one digit */
   while ((save_and_next(ls), lisxdigit(ls->current))) {
     i++;
+    esccheck(ls, r <= (0x7FFFFFFFu >> 4), "UTF-8 value too large");
     r = (r << 4) + luaO_hexavalue(ls->current);
-    esccheck(ls, r <= 0x10FFFF, "UTF-8 value too large");
   }
   esccheck(ls, ls->current == '}', "missing '}'");
   next(ls);  /* skip '}' */
